@@ -18,13 +18,13 @@ public class EarningsService {
     private String finnhubApiKey;
 
     @Value("${beforeMarketOpenDateKey}")
-    private String beforeMarketOpenDate;
+    private String defaultBeforeMarketOpenDate;
 
     @Value("${afterMarketCloseDateKey}")
-    private String afterMarketCloseDate;
+    private String defaultAfterMarketCloseDate;
 
     @Value("${priceDataDateKey}")
-    private String priceDataDate;
+    private String defaultPriceDataDate;
 
     // Track API calls within a second
     private final AtomicInteger callsInCurrentSecond = new AtomicInteger(0);
@@ -45,27 +45,29 @@ public class EarningsService {
     public EarningsService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
+//
+//    public List<EarningsData> getEarningsBeforeMarketOpenWithPrices() {
+//
+//        List<EarningsData> earnings = getEarningsBeforeMarketOpen();
+//        return earnings.stream()
+//                .map(this::enrichWithPriceData)
+//                .collect(Collectors.toList());
+//    }
+//
+//    public List<EarningsData> getEarningsAfterMarketCloseWithPrices() {
+//        List<EarningsData> earnings = getEarningsAfterMarketClose();
+//        return earnings.stream()
+//                .map(this::enrichWithPriceData)
+//                .collect(Collectors.toList());
+//    }
 
-    public List<EarningsData> getEarningsBeforeMarketOpenWithPrices() {
+    public List<EarningsData> getEarningsBeforeMarketOpen(String beforeMarketOpenDate) {
+        String dateToUse = beforeMarketOpenDate != null ? beforeMarketOpenDate : defaultBeforeMarketOpenDate;
 
-        List<EarningsData> earnings = getEarningsBeforeMarketOpen();
-        return earnings.stream()
-                .map(this::enrichWithPriceData)
-                .collect(Collectors.toList());
-    }
-
-    public List<EarningsData> getEarningsAfterMarketCloseWithPrices() {
-        List<EarningsData> earnings = getEarningsAfterMarketClose();
-        return earnings.stream()
-                .map(this::enrichWithPriceData)
-                .collect(Collectors.toList());
-    }
-
-    public List<EarningsData> getEarningsBeforeMarketOpen() {
-        System.out.println("getEarningsBeforeMarketOpen=");
-        System.out.println("beforeMarketOpenDate="+ beforeMarketOpenDate);
-        System.out.println("afterMarketCloseDate="+ afterMarketCloseDate);
-        System.out.println("priceDataDate="+ priceDataDate);
+        System.out.println("#############getEarningsBeforeMarketOpen#############");
+        System.out.println("beforeMarketOpenDate=" + dateToUse);
+        System.out.println("afterMarketCloseDate=" + defaultAfterMarketCloseDate);
+        System.out.println("priceDataDate=" + defaultPriceDataDate);
         List<EarningsData> beforeMarketOpenEarnings = new ArrayList<>();
     //    LocalDate beforeMarketOpenDate = LocalDate.now();
 //        2025-02-21, 9:30 AM EST → UNIX Timestamp: 1740148200
@@ -73,7 +75,7 @@ public class EarningsService {
         //beforeMarketOpenDate = "2025-02-11";
 
         String earningsUrl = String.format("https://finnhub.io/api/v1/calendar/earnings?from=%s&to=%s&token=%s",
-                beforeMarketOpenDate, beforeMarketOpenDate, finnhubApiKey);
+                dateToUse, dateToUse, finnhubApiKey);
 
         try {
             //throttleApiCall();
@@ -114,16 +116,19 @@ public class EarningsService {
         return beforeMarketOpenEarnings;
     }
 
-    public List<EarningsData> getEarningsAfterMarketClose() {
-        System.out.println("getEarningsAfterMarketClose=");
-        System.out.println("beforeMarketOpenDate="+ beforeMarketOpenDate);
-        System.out.println("afterMarketCloseDate="+ afterMarketCloseDate);
-        System.out.println("priceDataDate="+ priceDataDate);
+    public List<EarningsData> getEarningsAfterMarketClose(String afterMarketCloseDate) {
+        // Use provided date or fall back to default
+        String dateToUse = afterMarketCloseDate != null ? afterMarketCloseDate : defaultAfterMarketCloseDate;
+
+        System.out.println("###########getEarningsAfterMarketClose##########");
+        System.out.println("beforeMarketOpenDate=" + defaultBeforeMarketOpenDate);
+        System.out.println("afterMarketCloseDate=" + dateToUse);
+        System.out.println("priceDataDate=" + defaultPriceDataDate);
+
         List<EarningsData> afterMarketOpenEarnings = new ArrayList<>();
-        //LocalDate afterMarketCloseDate = LocalDate.now().minusDays(1);
-       // afterMarketCloseDate = "2025-02-10";
+
         String earningsUrl = String.format("https://finnhub.io/api/v1/calendar/earnings?from=%s&to=%s&token=%s",
-                afterMarketCloseDate, afterMarketCloseDate, finnhubApiKey);
+                dateToUse, dateToUse, finnhubApiKey);
 
         try {
             throttleApiCall();
@@ -166,39 +171,39 @@ public class EarningsService {
 
 
 
-    private EarningsData enrichWithPriceData(EarningsData data) {
-        String symbol = data.getSymbol().toUpperCase();
-        //priceDataDate = "2025-02-11"; // As per requirement
-        String url = String.format("https://api.twelvedata.com/time_series?symbol=%s&interval=1min&start_date=%s&apikey=%s",
-                symbol, priceDataDate, TWELVE_DATA_API_KEY);
-
-        try {
-            twelveDataAPIThrottle();
-            // Use TwelveDataResponse.StockData as the target class, as per your successful approach
-            TwelveDataResponse.StockData stockData = restTemplate.getForObject(url, TwelveDataResponse.StockData.class);
-
-            if (stockData != null && stockData.getValues() != null) {
-                for (TwelveDataResponse.TimeSeries ts : stockData.getValues()) {
-                    String time = ts.getDatetime().split(" ")[1];
-                    Double price = ts.getOpen() != null ? Double.parseDouble(ts.getOpen()) : 0.0;
-
-                    switch (time) {
-                        case "09:30:00": data.setPriceAt930(price); break;
-                        case "09:35:00": data.setPriceAt935(price); break;
-                        case "09:40:00": data.setPriceAt940(price); break;
-                        case "09:45:00": data.setPriceAt945(price); break;
-                        case "09:50:00": data.setPriceAt950(price); break;
-                        case "10:00:00": data.setPriceAt1000(price); break;
-                        case "11:00:00": data.setPriceAt1100(price); break;
-                        case "11:05:00": data.setPriceAt1105(price); break;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("Error fetching price data for " + symbol + ": " + e.getMessage());
-        }
-        return data;
-    }
+//    private EarningsData enrichWithPriceData(EarningsData data) {
+//        String symbol = data.getSymbol().toUpperCase();
+//        //priceDataDate = "2025-02-11"; // As per requirement
+//        String url = String.format("https://api.twelvedata.com/time_series?symbol=%s&interval=1min&start_date=%s&apikey=%s",
+//                symbol, priceDataDate, TWELVE_DATA_API_KEY);
+//
+//        try {
+//            twelveDataAPIThrottle();
+//            // Use TwelveDataResponse.StockData as the target class, as per your successful approach
+//            TwelveDataResponse.StockData stockData = restTemplate.getForObject(url, TwelveDataResponse.StockData.class);
+//
+//            if (stockData != null && stockData.getValues() != null) {
+//                for (TwelveDataResponse.TimeSeries ts : stockData.getValues()) {
+//                    String time = ts.getDatetime().split(" ")[1];
+//                    Double price = ts.getOpen() != null ? Double.parseDouble(ts.getOpen()) : 0.0;
+//
+//                    switch (time) {
+//                        case "09:30:00": data.setPriceAt930(price); break;
+//                        case "09:35:00": data.setPriceAt935(price); break;
+//                        case "09:40:00": data.setPriceAt940(price); break;
+//                        case "09:45:00": data.setPriceAt945(price); break;
+//                        case "09:50:00": data.setPriceAt950(price); break;
+//                        case "10:00:00": data.setPriceAt1000(price); break;
+//                        case "11:00:00": data.setPriceAt1100(price); break;
+//                        case "11:05:00": data.setPriceAt1105(price); break;
+//                    }
+//                }
+//            }
+//        } catch (Exception e) {
+//            System.err.println("Error fetching price data for " + symbol + ": " + e.getMessage());
+//        }
+//        return data;
+//    }
 
 
     private EarningsData enrichEarningsData(EarningsData data) {
