@@ -17,14 +17,14 @@ public class EarningsService {
     @Value("${finnhub.api.key}")
     private String finnhubApiKey;
 
-    @Value("${beforeMarketOpenDateKey}")
-    private String defaultBeforeMarketOpenDate;
-
-    @Value("${afterMarketCloseDateKey}")
-    private String defaultAfterMarketCloseDate;
-
-    @Value("${priceDataDateKey}")
-    private String defaultPriceDataDate;
+//    @Value("${beforeMarketOpenDateKey}")
+//    private String defaultBeforeMarketOpenDate;
+//
+//    @Value("${afterMarketCloseDateKey}")
+//    private String defaultAfterMarketCloseDate;
+//
+//    @Value("${priceDataDateKey}")
+//    private String defaultPriceDataDate;
 
     // Track API calls within a second
     private final AtomicInteger callsInCurrentSecond = new AtomicInteger(0);
@@ -62,12 +62,11 @@ public class EarningsService {
 //    }
 
     public List<EarningsData> getEarningsBeforeMarketOpen(String beforeMarketOpenDate) {
-        String dateToUse = beforeMarketOpenDate != null ? beforeMarketOpenDate : defaultBeforeMarketOpenDate;
+        String dateToUse = beforeMarketOpenDate;
 
         System.out.println("#############getEarningsBeforeMarketOpen#############");
-        System.out.println("beforeMarketOpenDate=" + dateToUse);
-        System.out.println("afterMarketCloseDate=" + defaultAfterMarketCloseDate);
-        System.out.println("priceDataDate=" + defaultPriceDataDate);
+        System.out.println("beforeMarketOpenDate=dateToUse" + dateToUse);
+
         List<EarningsData> beforeMarketOpenEarnings = new ArrayList<>();
     //    LocalDate beforeMarketOpenDate = LocalDate.now();
 //        2025-02-21, 9:30 AM EST → UNIX Timestamp: 1740148200
@@ -118,12 +117,12 @@ public class EarningsService {
 
     public List<EarningsData> getEarningsAfterMarketClose(String afterMarketCloseDate) {
         // Use provided date or fall back to default
-        String dateToUse = afterMarketCloseDate != null ? afterMarketCloseDate : defaultAfterMarketCloseDate;
+        String dateToUse = afterMarketCloseDate;
 
         System.out.println("###########getEarningsAfterMarketClose##########");
-        System.out.println("beforeMarketOpenDate=" + defaultBeforeMarketOpenDate);
-        System.out.println("afterMarketCloseDate=" + dateToUse);
-        System.out.println("priceDataDate=" + defaultPriceDataDate);
+
+        System.out.println("afterMarketCloseDate=dateToUse" + dateToUse);
+
 
         List<EarningsData> afterMarketOpenEarnings = new ArrayList<>();
 

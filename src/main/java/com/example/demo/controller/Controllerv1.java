@@ -35,15 +35,6 @@ public class Controllerv1 {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Value("${beforeMarketOpenDateKey}")
-    private String nasdaqdefaultBeforeMarketOpenDate;
-
-    @Value("${afterMarketCloseDateKey}")
-    private String nasdaqdefaultAfterMarketCloseDate;
-
-    @Value("${priceDataDateKey}")
-    private String nasdaqdefaultPriceDataDate;
-
 
     @GetMapping("/earnings")
     public String getEarningsDataAsHtml(
@@ -53,38 +44,47 @@ public class Controllerv1 {
 // Start timing
 
         long startTime = System.currentTimeMillis();
-        // Adjust dates if it's Monday
+
+        // Get today's date dynamically with each request
         LocalDate today = LocalDate.now();
+
+        // Set defaults to today's date and adjust for Monday
+        String defaultBeforeMarketOpenDate = today.toString();
+        String defaultAfterMarketCloseDate = today.minusDays(1).toString(); // Yesterday by default
+        String defaultPriceDataDate = today.toString();
+
+        // Adjust dates if it's Monday
         if (today.getDayOfWeek() == DayOfWeek.MONDAY) {
-            if (beforeMarketOpenDateKey == null) {
-                beforeMarketOpenDateKey = today.toString();
-                nasdaqdefaultBeforeMarketOpenDate = beforeMarketOpenDateKey;
-            }
-            if (priceDataDateKey == null) {
-                priceDataDateKey = today.toString();
-                nasdaqdefaultBeforeMarketOpenDate = beforeMarketOpenDateKey;
-            }
-            if (afterMarketCloseDateKey == null) {
-                // Get previous Friday (3 days back from Monday)
-                afterMarketCloseDateKey = today.minusDays(3).toString();
-                nasdaqdefaultAfterMarketCloseDate = afterMarketCloseDateKey;
-            }
+            defaultBeforeMarketOpenDate = today.toString();
+            defaultPriceDataDate = today.toString();
+            defaultAfterMarketCloseDate = today.minusDays(3).toString(); // Previous Friday
         }
-        List<String> bmoResults = nasdaqSpecificEarningCalendergoogleScraper(nasdaqdefaultBeforeMarketOpenDate, "before");
-        List<String> amcResults = nasdaqSpecificEarningCalendergoogleScraper(nasdaqdefaultAfterMarketCloseDate, "after");
+
+        // Use query params if provided, otherwise use computed defaults
+        String effectiveBeforeMarketOpenDate = beforeMarketOpenDateKey != null ? beforeMarketOpenDateKey : defaultBeforeMarketOpenDate;
+        String effectiveAfterMarketCloseDate = afterMarketCloseDateKey != null ? afterMarketCloseDateKey : defaultAfterMarketCloseDate;
+        String effectivePriceDataDate = priceDataDateKey != null ? priceDataDateKey : defaultPriceDataDate;
+
+        // Log the effective dates
+        System.out.println("effectiveBeforeMarketOpenDate=" + effectiveBeforeMarketOpenDate);
+        System.out.println("effectiveAfterMarketCloseDate=" + effectiveAfterMarketCloseDate);
+        System.out.println("effectivePriceDataDate=" + effectivePriceDataDate);
+
+        List<String> bmoResults = nasdaqSpecificEarningCalendergoogleScraper(effectiveBeforeMarketOpenDate, "before");
+        List<String> amcResults = nasdaqSpecificEarningCalendergoogleScraper(effectiveAfterMarketCloseDate, "after");
 
         System.out.println("#######NASDAQ bmoResults#######\n" + bmoResults);
         System.out.println("#######NASDAQ amcResults#######\n" + amcResults);
 
         System.out.println("########Input Received At Controller Level#######");
-        System.out.println("beforeMarketOpenDateKey=" + beforeMarketOpenDateKey);
-        System.out.println("priceDataDateKey=" + priceDataDateKey);
-        System.out.println("afterMarketCloseDateKey=" + afterMarketCloseDateKey);
+//        System.out.println("beforeMarketOpenDateKey=" + beforeMarketOpenDateKey);
+//        System.out.println("priceDataDateKey=" + priceDataDateKey);
+//        System.out.println("afterMarketCloseDateKey=" + afterMarketCloseDateKey);
         System.out.println("##################################################");
         List<EarningsData> earningsBeforeMarketOpen = earningsService.getEarningsBeforeMarketOpen(
-                beforeMarketOpenDateKey);
+                effectiveBeforeMarketOpenDate);
         List<EarningsData> earningsAfterMarketClose = earningsService.getEarningsAfterMarketClose(
-                afterMarketCloseDateKey);
+                effectiveAfterMarketCloseDate);
         // Combine and sort by decreasing Rev % (Revenue beat %)
         List<EarningsData> combinedEarnings = new ArrayList<>();
         combinedEarnings.addAll(earningsBeforeMarketOpen);
@@ -109,8 +109,8 @@ public class Controllerv1 {
         bmoResults = bmoResults.stream()
                 .filter(result -> {
                     String firstWord = extractFirstWordFromResult(result);
-                    System.out.println("firstWord="+ firstWord);
-                    System.out.println("combinedCompanyFirstWords.toString="+ combinedCompanyFirstWords.toString());
+                    System.out.println("firstWord=" + firstWord);
+                    System.out.println("combinedCompanyFirstWords.toString=" + combinedCompanyFirstWords.toString());
                     return !combinedCompanyFirstWords.toString().contains(firstWord);
                 })
                 .collect(Collectors.toList());
@@ -119,8 +119,8 @@ public class Controllerv1 {
         amcResults = amcResults.stream()
                 .filter(result -> {
                     String firstWord = extractFirstWordFromResult(result);
-                    System.out.println("firstWord="+ firstWord);
-                    System.out.println("combinedCompanyFirstWords.toString="+ combinedCompanyFirstWords.toString());
+                    System.out.println("firstWord=" + firstWord);
+                    System.out.println("combinedCompanyFirstWords.toString=" + combinedCompanyFirstWords.toString());
                     return !combinedCompanyFirstWords.toString().contains(firstWord);
                 })
                 .collect(Collectors.toList());
@@ -143,6 +143,8 @@ public class Controllerv1 {
         html.append("</style>");
         html.append("</head><body>");
         html.append("<h2>Earnings Report (Time Taken: ").append(timeTaken).append(" minutes)</h2>");
+        html.append("<h2>effectiveBeforeMarketOpenDate=").append(effectiveBeforeMarketOpenDate).append("</h2>");
+        html.append("<h2>effectiveAfterMarketCloseDate=").append(effectiveAfterMarketCloseDate).append("</h2>");
         html.append("<table>");
 
         // Table header
@@ -225,6 +227,7 @@ public class Controllerv1 {
         System.out.println("DONE");
         return html.toString();
     }
+
     private String getFirstWord(String name) {
         if (name == null || name.trim().isEmpty()) return "";
         String[] words = name.trim().split("\\s+");
@@ -260,6 +263,7 @@ public class Controllerv1 {
         // Get the first word of the remaining title
         return getFirstWord(title);
     }
+
     private List<String> nasdaqSpecificEarningCalendergoogleScraper(String nasdaqGoogleScrapperDate, String beforeOrAfter) throws JsonProcessingException, ParseException {
         List<String> results = new ArrayList<>();
         System.out.println("#####nasdaqSpecificEarningCalendergoogleScraper#####");
