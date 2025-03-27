@@ -1,20 +1,27 @@
 package com.example.demo.controller;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
 import com.example.demo.service.EarningsData;
 import com.example.demo.service.EarningsService;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
@@ -23,31 +30,56 @@ public class Controllerv1 {
     @Autowired
     private EarningsService earningsService;
 
+    @Autowired
+    private RestTemplate restTemplate;
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Value("${beforeMarketOpenDateKey}")
+    private String nasdaqdefaultBeforeMarketOpenDate;
+
+    @Value("${afterMarketCloseDateKey}")
+    private String nasdaqdefaultAfterMarketCloseDate;
+
+    @Value("${priceDataDateKey}")
+    private String nasdaqdefaultPriceDataDate;
+
+
     @GetMapping("/earnings")
     public String getEarningsDataAsHtml(
             @RequestParam(required = false) String beforeMarketOpenDateKey,
             @RequestParam(required = false) String afterMarketCloseDateKey,
-            @RequestParam(required = false) String priceDataDateKey) {
+            @RequestParam(required = false) String priceDataDateKey) throws JsonProcessingException, ParseException {
 // Start timing
+
         long startTime = System.currentTimeMillis();
         // Adjust dates if it's Monday
         LocalDate today = LocalDate.now();
         if (today.getDayOfWeek() == DayOfWeek.MONDAY) {
             if (beforeMarketOpenDateKey == null) {
                 beforeMarketOpenDateKey = today.toString();
+                nasdaqdefaultBeforeMarketOpenDate = beforeMarketOpenDateKey;
             }
             if (priceDataDateKey == null) {
                 priceDataDateKey = today.toString();
+                nasdaqdefaultBeforeMarketOpenDate = beforeMarketOpenDateKey;
             }
             if (afterMarketCloseDateKey == null) {
                 // Get previous Friday (3 days back from Monday)
                 afterMarketCloseDateKey = today.minusDays(3).toString();
+                nasdaqdefaultAfterMarketCloseDate = afterMarketCloseDateKey;
             }
         }
+        List<String> bmoResults = nasdaqSpecificEarningCalendergoogleScraper(nasdaqdefaultBeforeMarketOpenDate, "before");
+        List<String> amcResults = nasdaqSpecificEarningCalendergoogleScraper(nasdaqdefaultAfterMarketCloseDate, "after");
+
+        System.out.println("#######NASDAQ bmoResults#######\n" + bmoResults);
+        System.out.println("#######NASDAQ amcResults#######\n" + amcResults);
+
         System.out.println("########Input Received At Controller Level#######");
-        System.out.println("beforeMarketOpenDateKey="+ beforeMarketOpenDateKey);
-        System.out.println("priceDataDateKey="+ priceDataDateKey);
-        System.out.println("afterMarketCloseDateKey="+ afterMarketCloseDateKey);
+        System.out.println("beforeMarketOpenDateKey=" + beforeMarketOpenDateKey);
+        System.out.println("priceDataDateKey=" + priceDataDateKey);
+        System.out.println("afterMarketCloseDateKey=" + afterMarketCloseDateKey);
         System.out.println("##################################################");
         List<EarningsData> earningsBeforeMarketOpen = earningsService.getEarningsBeforeMarketOpen(
                 beforeMarketOpenDateKey);
@@ -67,6 +99,32 @@ public class Controllerv1 {
                 return Double.NEGATIVE_INFINITY; // Default for invalid data
             }
         }).reversed());
+// Step 1: Extract the first word of company names from combinedEarnings
+        Set<String> combinedCompanyFirstWords = combinedEarnings.stream()
+                .map(data -> getFirstWord(data.getName()))
+                .filter(word -> !word.isEmpty())
+                .collect(Collectors.toSet());
+
+        // Step 2: Remove duplicates from bmoResults based on the first word
+        bmoResults = bmoResults.stream()
+                .filter(result -> {
+                    String firstWord = extractFirstWordFromResult(result);
+                    System.out.println("firstWord="+ firstWord);
+                    System.out.println("combinedCompanyFirstWords.toString="+ combinedCompanyFirstWords.toString());
+                    return !combinedCompanyFirstWords.toString().contains(firstWord);
+                })
+                .collect(Collectors.toList());
+
+        // Step 3: Remove duplicates from amcResults based on the first word
+        amcResults = amcResults.stream()
+                .filter(result -> {
+                    String firstWord = extractFirstWordFromResult(result);
+                    System.out.println("firstWord="+ firstWord);
+                    System.out.println("combinedCompanyFirstWords.toString="+ combinedCompanyFirstWords.toString());
+                    return !combinedCompanyFirstWords.toString().contains(firstWord);
+                })
+                .collect(Collectors.toList());
+
 
         // End timing
         long endTime = System.currentTimeMillis();
@@ -152,8 +210,88 @@ public class Controllerv1 {
         html.append("if premarket around 5% & rev>8 and eps% > -21  or eps%>1.5% & industry not equal to Metals and mining\n");
         html.append("if premarket around 5% & rev>-3.70 & eps % around 500% and market cap>500\n");
         html.append("</pre>");
+        html.append("<br>");
+        html.append("#####NASDAQ:bmoResults#####");
+        html.append("<br>");
+        html.append(bmoResults.stream().collect(Collectors.joining("<br>")));
+        html.append("<br>");
+        html.append("<br>");
+        html.append("<br>");
+        html.append("#####NASDAQ:amcResults#####");
+        html.append("<br>");
+        html.append(amcResults.stream().collect(Collectors.joining("<br>")));
+        html.append("<br>");
+        html.append("<br>");
         System.out.println("DONE");
         return html.toString();
+    }
+    private String getFirstWord(String name) {
+        if (name == null || name.trim().isEmpty()) return "";
+        String[] words = name.trim().split("\\s+");
+        return words.length > 0 ? words[0] : "";
+    }
+
+    // Helper method to extract the first word of the company name from a result string
+    private String extractFirstWordFromResult(String result) {
+        // Split the result on the first ":" to get the title
+        String[] parts = result.split(":", 2);
+        if (parts.length < 1) return "";
+
+        String title = parts[0].trim();
+
+        // Extract the company name from the title
+        // Example title: "Dollar Tree Inc. Common Stock (DLTR) Earnings Report Date ..."
+        // We want the first word of the company name, e.g., "Dollar"
+        // Remove the ticker and everything after it
+        int tickerStart = title.indexOf("(");
+        if (tickerStart != -1) {
+            title = title.substring(0, tickerStart).trim();
+        }
+
+        // Remove "Common Stock" if present
+        title = title.replace("Common Stock", "").trim();
+
+        // Remove "Earnings Report Date ..." if present
+        int earningsIndex = title.indexOf("Earnings Report Date");
+        if (earningsIndex != -1) {
+            title = title.substring(0, earningsIndex).trim();
+        }
+
+        // Get the first word of the remaining title
+        return getFirstWord(title);
+    }
+    private List<String> nasdaqSpecificEarningCalendergoogleScraper(String nasdaqGoogleScrapperDate, String beforeOrAfter) throws JsonProcessingException, ParseException {
+        List<String> results = new ArrayList<>();
+        System.out.println("#####nasdaqSpecificEarningCalendergoogleScraper#####");
+        SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat outputFormat = new SimpleDateFormat("MM/dd/yyyy");
+
+        // Parse the input date string to a Date object
+        Date date = inputFormat.parse(nasdaqGoogleScrapperDate);
+
+        // Format the Date object to the desired output format
+        String nasdaqDate = outputFormat.format(date);
+        String querytosearch = "\"" + nasdaqDate + " " + beforeOrAfter + "\"";
+        // this is api key "AIzaSyBxF0DeQLwzTlTGryFprAMoXIGZwI2i4-4" and this is searchengineID 130eddca42c1b4cb1
+        String url = "https://www.googleapis.com/customsearch/v1?key=" + "AIzaSyBxF0DeQLwzTlTGryFprAMoXIGZwI2i4-4" +
+                "&cx=" + "130eddca42c1b4cb1" + "&q=" + querytosearch;
+        String forObject = restTemplate.getForObject(url, String.class);
+// Parse the JSON response
+        JsonNode rootNode = objectMapper.readTree(forObject);
+        JsonNode itemsNode = rootNode.path("items");
+        if (itemsNode.isArray()) {
+            // Iterate over each item in the "items" array
+            for (JsonNode item : itemsNode) {
+                // Extract the "snippet" field
+                String title = item.path("title").asText();
+                String snippet = item.path("snippet").asText();
+                if (!title.isEmpty() && !snippet.isEmpty()) {
+                    String combinedResult = title + ":" + snippet + "\n";
+                    results.add(combinedResult);
+                }
+            }
+        }
+        return results;
     }
 
 //    @GetMapping("/earningsWithPrice")
